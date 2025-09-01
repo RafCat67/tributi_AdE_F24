@@ -84,7 +84,7 @@ tbody tr:hover { background: #fafafa; }
   <header class="header" role="banner">
     <h1>DG 50.13.00 - Direzione Generale per le Risorse Finanziarie</h1>
     <h2>AdE Campania - Dashboard Versamenti F24</h2>
-    <p>Dashboard generata il 01/09/2025 alle 12:48 — <span id="totalRecordsHeader">6007</span> record F24 totali</p>
+    <p>Dashboard generata il 01/09/2025 alle 15:31 — <span id="totalRecordsHeader">6007</span> record F24 totali</p>
   </header>
 
   <main id="contenuto-principale" role="main">
@@ -863,73 +863,109 @@ function createChartLegendTable(containerId, title, data) {
   try {
     let html = '<h4>' + title + ' - Dettaglio Dati</h4>';
     
-    // Calcola totale generale per percentuale assoluta
     const totalGeneral = data.reduce((sum, item) => sum + Math.abs(item.rawValue || 0), 0);
-    
-    // Per il grafico degli anni, calcola anche percentuali per singolo anno
-    if (containerId === 'yearChartTable') {
-      // Raggruppa i dati per anno - versione più robusta
+
+    // === Evoluzione temporale (YoY) con colorazione condizionale ===
+    if (containerId === 'evoluzioneChartTable') {
       const byYear = {};
       data.forEach(item => {
-        // Estrai anno dal label (es: "2020 - Coattiva" -> "2020")
+        const parts = String(item.label).split(' - ');
+        if (parts.length >= 2) {
+          const year = parts[0].trim();
+          const type = parts[1].trim().toLowerCase();
+          if (!byYear[year]) byYear[year] = { coattiva: 0, spontanea: 0 };
+          const amount = Math.abs(item.rawValue || 0);
+          if (type.includes('coattiva')) byYear[year].coattiva = amount;
+          else if (type.includes('spontanea')) byYear[year].spontanea = amount;
+        }
+      });
+
+      const years = Object.keys(byYear).sort((a, b) => Number(a) - Number(b));
+      html += '<table><thead><tr>'
+            + '<th>Elemento</th>'
+            + '<th>Valore</th>'
+            + '<th>Var. % vs anno prec.</th>'
+            + '</tr></thead><tbody>';
+
+      years.forEach((year, i) => {
+        const prevYear = i > 0 ? years[i - 1] : null;
+        ['coattiva', 'spontanea'].forEach(kind => {
+          const cur = Math.abs(byYear[year][kind] || 0);
+          const prev = prevYear ? Math.abs(byYear[prevYear][kind] || 0) : null;
+
+          let yoy = null;
+          let yoyStr = '-';
+          let yoyStyle = '';
+
+          if (prevYear !== null) {
+            if (prev && isFinite(prev)) {
+              yoy = ((cur - prev) / prev) * 100;
+              const sign = yoy >= 0 ? '+' : '';
+              yoyStr = sign + yoy.toFixed(1) + '%';
+              if (yoy < 0) yoyStyle = 'color:red;font-weight:bold;';
+              else if (yoy > 0) yoyStyle = 'color:green;';
+            } else {
+              yoyStr = cur === 0 ? '0.0%' : 'n/a';
+            }
+          }
+
+          const label = year + ' - ' + (kind === 'coattiva' ? 'Coattiva' : 'Spontanea');
+          html += '<tr>'
+                + '<td>' + label + '</td>'
+                + '<td>' + formatCurrency(cur) + '</td>'
+                + '<td style="' + yoyStyle + '">' + yoyStr + '</td>'
+                + '</tr>';
+        });
+      });
+
+    } else if (containerId === 'yearChartTable') {
+      // --- Ramo originale per % su totale/anno ---
+      const byYear = {};
+      data.forEach(item => {
         const parts = item.label.split(' - ');
         if (parts.length >= 2) {
           const year = parts[0].trim();
           const type = parts[1].trim();
-          
-          if (!byYear[year]) {
-            byYear[year] = { coattiva: 0, spontanea: 0 };
-          }
-          
+          if (!byYear[year]) byYear[year] = { coattiva: 0, spontanea: 0 };
           const amount = Math.abs(item.rawValue || 0);
-          if (type.toLowerCase().includes('coattiva')) {
-            byYear[year].coattiva = amount;
-          } else if (type.toLowerCase().includes('spontanea')) {
-            byYear[year].spontanea = amount;
-          }
+          if (type.toLowerCase().includes('coattiva')) byYear[year].coattiva = amount;
+          else if (type.toLowerCase().includes('spontanea')) byYear[year].spontanea = amount;
         }
       });
-      
-      // Crea tabella con entrambe le percentuali
+
       html += '<table><thead><tr><th>Elemento</th><th>Valore</th><th>% su Totale</th><th>% su Anno</th></tr></thead><tbody>';
-      
+
       data.forEach(item => {
         const parts = item.label.split(' - ');
         let percentageOnYear = '-';
-        
         if (parts.length >= 2) {
           const year = parts[0].trim();
-          const yearTotal = byYear[year].coattiva + byYear[year].spontanea;
-          
+          const yearTotal = (byYear[year].coattiva || 0) + (byYear[year].spontanea || 0);
           if (yearTotal > 0) {
             const itemValue = Math.abs(item.rawValue || 0);
             percentageOnYear = ((itemValue / yearTotal) * 100).toFixed(1) + '%';
           }
         }
-        
         const percentageGeneral = totalGeneral > 0 ? ((Math.abs(item.rawValue || 0) / totalGeneral) * 100).toFixed(1) : '0.0';
-        
-        html += '<tr>' +
-          '<td>' + item.label + '</td>' +
-          '<td>' + item.value + '</td>' +
-          '<td>' + percentageGeneral + '%</td>' +
-          '<td>' + percentageOnYear + '</td>' +
-        '</tr>';
+        html += '<tr>'
+              + '<td>' + item.label + '</td>'
+              + '<td>' + item.value + '</td>'
+              + '<td>' + percentageGeneral + '%</td>'
+              + '<td>' + percentageOnYear + '</td>'
+              + '</tr>';
       });
-      
+
     } else {
-      // Per altri grafici, mantieni la tabella originale
+      // --- Ramo di default per altre tabelle ---
       html += '<table><thead><tr><th>Elemento</th><th>Valore</th><th>Percentuale</th></tr></thead><tbody>';
-      
       data.forEach(item => {
         const percentage = totalGeneral > 0 ? ((Math.abs(item.rawValue || 0) / totalGeneral) * 100).toFixed(1) : '0.0';
         html += '<tr><td>' + item.label + '</td><td>' + item.value + '</td><td>' + percentage + '%</td></tr>';
       });
     }
-    
+
     html += '</tbody></table>';
-    
-    // Aggiungi legenda per il grafico degli anni
+
     if (containerId === 'yearChartTable') {
       html += '<div style="margin-top: 10px; font-size: 0.85rem; color: #6b7280;">';
       html += '<strong>Legenda:</strong><br>';
@@ -939,11 +975,13 @@ function createChartLegendTable(containerId, title, data) {
     }
     
     container.innerHTML = html;
-    
+
   } catch (error) {
     console.error('Errore creazione tabella legenda:', error);
   }
 }
+
+
 
 // Funzione aggiuntiva per calcolare statistiche per anno
 function getYearlyBreakdown() {
